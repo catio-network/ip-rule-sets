@@ -18,6 +18,7 @@ jobs:
       - name: Generate Artifacts
         shell: bash
         run: |
+          set -x
           rm -rf artifacts
           mkdir artifacts
           jq -c '.rules[]' rules.json | while read -r rule; do
@@ -36,6 +37,8 @@ jobs:
       - name: Upload Artifacts
         shell: bash
         run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
           git add artifacts
           git commit -m "Update generated artifacts"
           git push origin master
