@@ -1,0 +1,10 @@
+{
+  "rules": [
+    {
+      "name": "alibaba",
+      "entries": [
+        "AS-ALIBABA-CN-NET"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+name: Generate
+on:
+  schedule:
+    - cron: 0 0 * * 0
+jobs:
+  generate:
+    name: Generate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Packages
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install -y bgpq4 jq
+      - name: Generate Artifacts
+        shell: bash
+        run: |
+          rm -rf artifacts
+          mkdir artifacts
+          jq -c '.rules[]' rules.json | while read -r rule; do
+            name=$(jq -r '.name' <<< "$rule")
+            for entry in $(jq -r '.entries[]' <<< "$rule"); do
+              bgpq4 -4AF "%n/%l\n" "$entry" >> "artifacts/${name}.txt"
+              bgpq4 -6AF "%n/%l\n" "$entry" >> "artifacts/${name}.txt"
+            done
+          done
+          jq -c '.rules[]' rules.json | while read -r rule; do
+            name=$(jq -r '.name' <<< "$rule")
+            if [ -f "artifacts/${name}.txt" ]; then
+              jq -Rs '{"version": 1, "rules": [{"ip_cidr": split("\n") | map(select(length > 0))}]}' <<< "$(cat artifacts/${name}.txt)" > "artifacts/${name}.json"
+            fi
+          done
+      - name: Upload Artifacts
+        shell: bash
+        run: |
+          git add artifacts
+          git commit -m "Update generated artifacts"
+          git push origin master
