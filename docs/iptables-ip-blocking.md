@@ -1,7 +1,8 @@
 # iptables IP Blocking
 
-The `scripts/iptables-ip-blocking.sh` script downloads public IPv4 and IPv6
-prefix lists and installs them as source-address blocking rules on a Linux host.
+The `scripts/iptables-ip-blocking.sh` script reads IPv4 and IPv6 prefix lists
+from the repository's `artifacts/` directory and installs them as source-address
+blocking rules on a Linux host.
 
 The script manages two chains in the `filter` table:
 
@@ -17,7 +18,6 @@ dropped. Traffic that does not match returns to the remaining rules in `INPUT`.
 The script must run on Linux as `root`. It requires:
 
 - Bash
-- `curl`
 - Git, when using automatic repository updates
 - `iptables`
 - `ip6tables`
@@ -27,13 +27,13 @@ On Debian or Ubuntu, install the main dependencies with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install curl git iptables util-linux
+sudo apt-get install git iptables util-linux
 ```
 
 On Alpine Linux, install them with:
 
 ```bash
-sudo apk add bash curl git iptables util-linux
+sudo apk add bash git iptables util-linux
 ```
 
 ## Deploy With Git
@@ -66,29 +66,30 @@ when the pull succeeds:
 sudo /bin/bash -c 'git -C /opt/ip-rule-sets pull --ff-only && /opt/ip-rule-sets/scripts/iptables-ip-blocking.sh install'
 ```
 
-## Configure Lists
+## Configure Artifact Files
 
-Edit the `RULE_URLS` array near the beginning of
+Edit the `RULE_FILES` array near the beginning of
 `scripts/iptables-ip-blocking.sh`:
 
 ```bash
-RULE_URLS=(
-  "https://raw.githubusercontent.com/catio-network/ip-rule-sets/master/artifacts/colocrossing.txt"
+RULE_FILES=(
+  "artifacts/colocrossing.txt"
 )
 ```
 
-Add additional raw URLs as separate entries:
+Add additional artifact files as separate entries:
 
 ```bash
-RULE_URLS=(
-  "https://raw.githubusercontent.com/catio-network/ip-rule-sets/master/artifacts/colocrossing.txt"
-  "https://raw.githubusercontent.com/catio-network/ip-rule-sets/master/artifacts/alibaba.txt"
+RULE_FILES=(
+  "artifacts/colocrossing.txt"
+  "artifacts/alibaba.txt"
 )
 ```
 
-Each URL must return plain text containing one IPv4 or IPv6 CIDR prefix per
-line. Blank lines and lines beginning with `#` are ignored. Exact duplicate
-prefixes are removed before rules are installed.
+Relative paths are resolved from the repository root, regardless of the current
+working directory. Absolute paths are also supported. Each file must contain one
+IPv4 or IPv6 CIDR prefix per line. Blank lines and lines beginning with `#` are
+ignored. Exact duplicate prefixes are removed before rules are installed.
 
 ## Install Rules
 
@@ -100,13 +101,13 @@ sudo ./scripts/iptables-ip-blocking.sh install
 
 Installation performs these steps:
 
-1. Downloads every configured list.
+1. Reads every configured artifact file.
 2. Validates and separates IPv4 and IPv6 prefixes.
 3. Removes existing `IP_BLOCK_V4` and `IP_BLOCK_V6` jumps and chains.
 4. Creates new managed chains and adds a `DROP` rule for each prefix.
 5. Inserts one jump at the beginning of each applicable `INPUT` chain.
 
-Downloading and validation happen before existing rules are removed. If rule
+File loading and validation happen before existing rules are removed. If rule
 installation fails, the script removes any partially installed managed chains.
 
 Running `install` repeatedly is supported. Each execution cleans the previous
@@ -152,7 +153,7 @@ The script does not modify unrelated firewall rules.
 ## Run From Cron
 
 Firewall configuration may be lost when a host reboots. A root crontab can
-restore the rules after startup and periodically refresh the downloaded lists.
+restore the rules after startup and periodically refresh the Git-managed lists.
 
 Open the root crontab:
 
@@ -171,7 +172,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ```
 
 The `@reboot` entry waits 30 seconds for networking to become available before
-updating the checkout and downloading the lists. The second entry pulls the
+updating the checkout and loading the artifact files. The second entry pulls the
 latest repository state and refreshes the rules every six hours. The `&&`
 operator prevents installation if `git pull` fails. `flock` prevents two Git or
 firewall operations from running simultaneously.
@@ -209,8 +210,8 @@ again.
 
 ## Operational Notes
 
-- The lists are fetched on every installation, so the host needs outbound HTTPS
-  access to each configured URL.
+- The install command uses files in the local checkout. Only `git clone` and
+  `git pull` require network access.
 - The rules block packets based on source address in `INPUT`. They do not block
   forwarded traffic or locally generated outbound traffic.
 - The rules are not saved through an iptables persistence service. Use the
@@ -227,12 +228,13 @@ from the root crontab.
 If a required command is missing, install the package that provides the command
 and run the script again.
 
-If a download fails, verify the URL and test connectivity:
+If `git pull` fails, verify access to GitHub and inspect the checkout:
 
 ```bash
-curl --fail --location --show-error \
-  https://raw.githubusercontent.com/catio-network/ip-rule-sets/master/artifacts/colocrossing.txt
+sudo git -C /opt/ip-rule-sets status
+sudo git -C /opt/ip-rule-sets pull --ff-only
 ```
 
 If prefix validation fails, inspect the reported line. Every non-comment line
-must contain only one IPv4 or IPv6 CIDR prefix.
+must contain only one IPv4 or IPv6 CIDR prefix. If a configured file cannot be
+read, verify its path and permissions in the checkout.

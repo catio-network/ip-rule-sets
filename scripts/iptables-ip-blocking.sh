@@ -2,12 +2,14 @@
 
 set -euo pipefail
 
-# Add or remove raw artifact URLs here. Each file must contain one IPv4 or IPv6
-# prefix per line. Blank lines and lines beginning with # are ignored.
-RULE_URLS=(
-  "https://raw.githubusercontent.com/catio-network/ip-rule-sets/master/artifacts/colocrossing.txt"
+# Add or remove repository-relative artifact files here. Each file must contain
+# one IPv4 or IPv6 prefix per line. Blank lines and comments are ignored.
+RULE_FILES=(
+  "artifacts/colocrossing.txt"
 )
 
+SCRIPT_DIRECTORY=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPOSITORY_ROOT=$(cd -- "$SCRIPT_DIRECTORY/.." && pwd)
 IPV4_CHAIN="IP_BLOCK_V4"
 IPV6_CHAIN="IP_BLOCK_V6"
 PARENT_CHAIN="INPUT"
@@ -66,14 +68,29 @@ uninstall_rules() {
   log "Removed managed iptables and ip6tables rules."
 }
 
-download_lists() {
+load_lists() {
   local output=$1
-  local url
+  local configured_file
+  local file
+  local line
 
   : >"$output"
-  for url in "${RULE_URLS[@]}"; do
-    log "Downloading $url"
-    curl --fail --location --silent --show-error "$url" >>"$output"
+  for configured_file in "${RULE_FILES[@]}"; do
+    if [[ $configured_file = /* ]]; then
+      file=$configured_file
+    else
+      file="$REPOSITORY_ROOT/$configured_file"
+    fi
+
+    if [[ ! -f $file || ! -r $file ]]; then
+      printf 'Error: configured prefix file is not readable: %s\n' "$file" >&2
+      exit 1
+    fi
+
+    log "Loading $file"
+    while IFS= read -r line || [[ -n $line ]]; do
+      printf '%s\n' "$line"
+    done <"$file" >>"$output"
     printf '\n' >>"$output"
   done
 }
@@ -101,7 +118,7 @@ split_and_validate_prefixes() {
     elif [[ $line =~ ^[0-9A-Fa-f:]+/([0-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$ && $line == *:* ]]; then
       printf '%s\n' "$line" >>"$ipv6_output"
     else
-      printf 'Error: invalid prefix at downloaded line %d: %s\n' "$line_number" "$line" >&2
+      printf 'Error: invalid prefix at combined line %d: %s\n' "$line_number" "$line" >&2
       exit 1
     fi
   done <"$input"
@@ -110,7 +127,7 @@ split_and_validate_prefixes() {
   sort -u -o "$ipv6_output" "$ipv6_output"
 
   if [[ ! -s $ipv4_output && ! -s $ipv6_output ]]; then
-    printf 'Error: the configured URLs returned no prefixes.\n' >&2
+    printf 'Error: the configured files contain no prefixes.\n' >&2
     exit 1
   fi
 }
@@ -134,7 +151,7 @@ load_chain() {
 install_rules() {
   TEMPORARY_DIRECTORY=$(mktemp -d)
 
-  download_lists "$TEMPORARY_DIRECTORY/prefixes.txt"
+  load_lists "$TEMPORARY_DIRECTORY/prefixes.txt"
   split_and_validate_prefixes \
     "$TEMPORARY_DIRECTORY/prefixes.txt" \
     "$TEMPORARY_DIRECTORY/ipv4.txt" \
@@ -166,7 +183,6 @@ main() {
 
   case $1 in
     install)
-      require_command curl
       require_command sort
       require_command mktemp
       install_rules
