@@ -5,6 +5,12 @@
       "entries": [
         "AS-ALIBABA-CN-NET"
       ]
+    },
+    {
+      "name": "colocrossing",
+      "entries": [
+        "AS36352"
+      ]
     }
   ]
 }
